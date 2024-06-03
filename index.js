@@ -6,11 +6,11 @@ const dns = require('dns');
 const fs = require('fs');
 
 const api = axios.create({
+    baseURL: "https://api.playit.gg",
     headers: {
         "Content-Type": "application/json",
         "Accept": "application/json"
     },
-    baseURL: "https://api.playit.gg"
 });
 
 api.execute = async (path = '/', body = {}, extra = {}) => {
@@ -29,8 +29,8 @@ async function genSecret() {
 
     const body = {
         code: claimCode,
-        agent_type: "self-managed",
-        version: "carson development"
+        agent_type: "default",
+        version: "0.15.13"
     }
 
     const claim = await api.execute('/claim/setup', body);
@@ -77,7 +77,10 @@ async function run() {
     const agent = await api.execute('/agents/rundata');
     if (agent.status !== "success") return console.trace(agent);
 
-    console.log(agent)
+    console.log(agent.data.tunnels)
+    const routing = await api.execute('/agents/routing/get');
+    if (routing.status !== "success") return console.trace(routing);
+    console.log(routing)
 
 }
 
