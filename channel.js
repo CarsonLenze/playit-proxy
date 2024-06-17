@@ -1,7 +1,150 @@
-const ControlMessages = require('./control');
 const dgram = require('dgram');
-const ControlRpcMessage = require('./controlMsg');
 
+const utils = {
+    writeBigInt64BE: (value) => {
+        const buf = Buffer.alloc(8);
+        buf.writeBigInt64BE(value);
+        return buf;
+    },
+    writeInt32BE: (value) => {
+        const buf = Buffer.alloc(4);
+        buf.writeInt32BE(value);
+        return buf;
+    },
+    readAddress: (buffer, offset) => {
+        const type = buffer.readUInt8(offset);
+        let address;
+        offset += 1;
+
+        if (type === 4) {
+            const ip_parts = buffer.slice(offset, offset + 4);
+            address = Array.from(ip_parts).join('.');
+            offset += 4;
+        } else if (type === 6) {
+            const ip_parts = buffer.slice(offset, offset + 16);
+            address = Array.from(ip_parts).join(':');
+            offset += 16;
+        } else return console.error("unknown ip type", type);
+
+        const port = buffer.readUInt16BE(offset);
+        offset += 2;
+
+        return {
+            type: type,
+            address: address,
+            port: port
+        }
+    }
+}
+
+class Message {
+    constructor(args) {
+        this.id = this.constructor.id;
+        for (const key in args) this[key] = args[key];
+    }
+}
+
+class Pong extends Message {
+    static id = 1;
+
+    constructor(args) {
+        super(args);
+    }
+
+    readFrom(buffer, offset) {
+        const data = new Object();
+
+        data.request_now = Number(
+            buffer.readBigInt64BE(offset)
+        );
+        offset += 8;
+
+        data.server_now = Number(
+            buffer.readBigInt64BE(offset)
+        );
+        offset += 8;
+
+        data.server_id = Number(
+            buffer.readBigInt64BE(offset)
+        );
+        offset += 8;
+
+        data.data_center_id = buffer.readInt32BE(offset)
+        offset += 4;
+
+        data.client_addr = utils.readAddress(buffer, offset);
+        offset += (data.client_addr.type === 4 ? 7 : 19);
+
+        data.tunnel_addr = utils.readAddress(buffer, offset);
+        offset += (data.tunnel_addr.type === 4 ? 7 : 19);
+
+        //session_expire_at: Option::read_from(read)?,
+        return data;
+    }
+}
+
+class Ping extends Message {
+    static id = 6;
+
+    constructor(args) {
+        super(args);
+    }
+
+    writeTo() {
+        let buffers = [];
+
+        buffers.push(utils.writeBigInt64BE(BigInt(this.now)))
+        if (this.current_ping !== null) buffers.push(utils.writeInt32BE(this.current_ping))
+        // if (this.session_id !== null)
+        return Buffer.concat(buffers);
+    }
+}
+
+const ControlRequest = {
+    Pong: Pong, /* 1 */
+    Ping: Ping /* 6 */
+}
+
+class ControlRpcMessage {
+    constructor({ request_id = null, content }) {
+        this.request_id = request_id;
+        this.content = content;
+        this.offset = 0;
+    }
+    toBuffer() {
+        const request_id = utils.writeBigInt64BE(BigInt(this.request_id));
+        const event_id = utils.writeInt32BE(this.content.constructor.id);
+
+        const data = this.content.writeTo();
+
+        const buffer = Buffer.concat([request_id, event_id, data]);
+        return buffer;
+    }
+    toJSON() {
+        const id = this.content.readInt32BE();
+        this.offset += 4;
+
+        this.request_id = Number(
+            this.content.readBigInt64BE(this.offset)
+        );
+        this.offset += 8;
+        const rand = this.content.readInt32BE(this.offset);
+        this.offset += 4;
+
+        let data = {};
+        switch (id) {
+            case ControlRequest.Pong.id:
+                const pong = new ControlRequest.Pong();
+                data = pong.readFrom(this.content, this.offset);
+                console.log('ping:', (data.server_now - data.request_now) + 'ms')
+            break;
+            default:
+                console.log('unknow: ', id)
+        }
+
+        console.log(data);
+    }
+}
 
 class Channel {
     constructor(controlAddress) {
@@ -12,127 +155,44 @@ class Channel {
         this.port = 5525;
 
         //temp
-        this.sessionId = null
-        this.currentPing = 0
-        this.requestId = 1
+        this.session_id = null
+        this.current_ping = 0
+        this.request_id = 1
 
-        this.socket.addListener('listening', () => this.onListening());
         this.socket.addListener('message', (...args) => this.onMessage(...args));
-    }
-    onListening(args) {
-
-        this.ping();
-        console.log('pingged')
-    }
-    onMessage(msg, rinfo) {
-        console.log('GOT MESSAGE', msg, rinfo)
+        this.socket.addListener('listening', () => this.onListening());
     }
     start() {
-        // const lis = this.ping
-        // this.socket.on('listening', function (buffer, rinfo) {
-        //     lis();
-        // })
-
         this.socket.bind();
     }
-    ping() {
-        const msg = new ControlMessages.Ping();
-        msg.now = Date.now();
-        msg.sessionId = this.sessionId;
-        msg.currentPing = this.currentPing;
-        const test = new ControlRpcMessage(this.id(), msg)
-        this.send(test)
-       //console.log('ping')
+    onListening() {
+        console.log('Tunnel started listening');
+
+        const message = new ControlRpcMessage({
+            request_id: this.request_id,
+            content: new ControlRequest.Ping({
+                now: Date.now(),
+                current_ping: this.current_ping,
+                session_id: this.session_id
+            })
+        });
+
+        const buffer = message.toBuffer();
+        this.send(buffer);
     }
-    send(data) {
-        const buffer = Buffer.alloc(1024);
-        data.writeTo(buffer);
+    onMessage(msg, rinfo) {
+        if (rinfo.address !== this.controlAddress || rinfo.port !== this.port) return console.error('Got message from invalid address', rinfo);
 
-        console.log('hex', buffer.toString('hex'))
-
-        console.log(buffer, 0, buffer.length, this.port, this.controlAddress)
+        const message = new ControlRpcMessage({ content: msg });
+        const data = message.toJSON();
+        //console.log('GOT MESSAGE', msg, rinfo)
+    }
+    send(buffer) {
         this.socket.send(buffer, 0, buffer.length, this.port, this.controlAddress, (err) => {
-            console.log(err)
-        })
-    }
-    onMessage(buffer, rinfo) {
-        decode(buffer)
-        //console.log(buffer, rinfo)
-    }
-    id() {
-        const val = this.requestId;
-        this.requestId++
-        return val;
+            if (err) console.log(err)
+        });
     }
 }
 
 const channel = new Channel('209.25.140.1');
-channel.start();
-
-function decode(buffer = Buffer.alloc(22)) {
-    let offset = 0
-    const feedType = buffer.readInt32BE(0);
-    offset += 4;
-
-    /* response */
-    if (feedType === 1) {
-        const requestId = buffer.readBigInt64BE(offset);
-        offset += 8;
-        const messageType = buffer.readInt32BE(offset);
-        offset += 4;
-
-        switch (messageType) {
-            case 1:
-                let requestNow = buffer.readBigInt64BE(offset);
-                offset += 8;
-                let serverNow = buffer.readBigInt64BE(offset);
-                offset += 8;
-                let serverId = buffer.readBigInt64BE(offset);
-                offset += 8;
-                let dataCenterId = buffer.readInt32BE(offset);
-                offset += 4;
-                console.log(requestNow, serverNow, serverId, dataCenterId)
-                // this.clientAddr = readInet(buffer);
-                // this.tunnelAddr = readInet(buffer);
-            break;
-            default:
-
-            break;
-        }
-    } else if (feedType == 2) {
-
-    }
-    // switch (feedType) {
-    //     case 1:
-    //         const requestNow = buffer.readBigInt64BE(offset);
-    //         offset += 8;
-    //         const serverNow = buffer.readBigInt64BE(offset);
-    //         offset += 8;
-    //         const serverId = buffer.readBigInt64BE(offset);
-    //         offset += 8;
-    //         console.log(requestNow, serverNow, serverId)
-
-    //     break;
-    //     default:
-    //         console.log(id)
-    //     break;
-    // }
-}
-
-// let offset = 0;
-// const buffer = Buffer.alloc(22);
-
-// const id = 3000
-// const time = Date.now()
-
-// offset = buffer.writeBigInt64BE(BigInt(id), offset);
-// offset = buffer.writeInt32BE(6, offset);
-// offset = buffer.writeBigInt64BE(BigInt(time), offset);
-
-// console.log(buffer.toString('hex'))
-
-// const t = buffer.readBigInt64BE(0);
-
-// const t2 = buffer.readInt32BE(8);
-// const t3 = buffer.readBigInt64BE(12);
-// console.log(Number(t), t2, t3)
+channel.start()
