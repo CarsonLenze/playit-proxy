@@ -1,4 +1,5 @@
 const dgram = require('dgram');
+const fetchData = require('.');
 
 const utils = {
     writeBigInt64BE: (value) => {
@@ -33,6 +34,28 @@ const utils = {
             type: type,
             address: address,
             port: port
+        }
+    },
+    AgentSessionId: {
+        readFrom(buffer, offset) {
+            const data = new Object();
+
+            data.session_id = Number(
+                buffer.readBigInt64BE(offset)
+            );
+            offset += 8;
+    
+            data.account_id = Number(
+                buffer.readBigInt64BE(offset)
+            );
+            offset += 8;
+    
+            data.agent_id = Number(
+                buffer.readBigInt64BE(offset)
+            );
+            offset += 8;
+
+            return data;
         }
     }
 }
@@ -100,8 +123,50 @@ class Ping extends Message {
     }
 }
 
+class RequestQueued extends Message {
+    static id = 4;
+
+    constructor(args) {
+        super(args);
+    }
+
+    writeTo() {
+        let buffers = [];
+
+        buffers.push(utils.writeBigInt64BE(BigInt(this.now)))
+        if (this.current_ping !== null) buffers.push(utils.writeInt32BE(this.current_ping))
+        // if (this.session_id !== null)
+        return Buffer.concat(buffers);
+    }
+}
+
+
+class AgentRegistered extends Message {
+    static id = 6;
+
+    constructor(args) {
+        super(args);
+    }
+
+    readFrom(buffer, offset) {
+        const data = new Object();
+
+        data.agent = utils.AgentSessionId.readFrom(buffer, offset);
+        offset += 24;
+
+        data.expires_at = Number(
+            buffer.readBigInt64BE(offset)
+        );
+        offset += 8;
+
+        return data
+    }
+}
+
 const ControlRequest = {
     Pong: Pong, /* 1 */
+    RequestQueued: RequestQueued, /* 4 */
+    AgentRegistered: AgentRegistered, /* 6 */
     Ping: Ping /* 6 */
 }
 
@@ -113,22 +178,27 @@ class ControlRpcMessage {
     }
     toBuffer() {
         const request_id = utils.writeBigInt64BE(BigInt(this.request_id));
-        const event_id = utils.writeInt32BE(this.content.constructor.id);
+        if (this?.content?.constructor?.id) {
+            const event_id = utils.writeInt32BE(this.content.constructor.id);
 
-        const data = this.content.writeTo();
+            const data = this.content.writeTo();
 
-        const buffer = Buffer.concat([request_id, event_id, data]);
-        return buffer;
+            const buffer = Buffer.concat([request_id, event_id, data]);
+            return buffer;
+        } else {
+            const buffer = Buffer.concat([request_id, this.content]);
+            return buffer;
+        }
     }
     toJSON() {
-        const id = this.content.readInt32BE();
+        const rand = this.content.readInt32BE();
         this.offset += 4;
 
         this.request_id = Number(
             this.content.readBigInt64BE(this.offset)
         );
         this.offset += 8;
-        const rand = this.content.readInt32BE(this.offset);
+        const id = this.content.readInt32BE(this.offset);
         this.offset += 4;
 
         let data = {};
@@ -138,11 +208,21 @@ class ControlRpcMessage {
                 data = pong.readFrom(this.content, this.offset);
                 console.log('ping:', (data.server_now - data.request_now) + 'ms')
             break;
+            case ControlRequest.RequestQueued.id:
+                data = { wait: true }
+            break;
+            case ControlRequest.AgentRegistered.id:
+                const agentRegistered = new ControlRequest.AgentRegistered();
+                data = agentRegistered.readFrom(this.content, this.offset);
+                break;
             default:
                 console.log('unknow: ', id)
         }
+        data.id = id;
+        data.rand = rand;
+        //console.log(rand)
 
-        console.log(data);
+        return data;
     }
 }
 
@@ -158,6 +238,15 @@ class Channel {
         this.session_id = null
         this.current_ping = 0
         this.request_id = 1
+        this.state = 'offline'
+
+        this.pong = {
+            client_addr: null,
+            tunnel_addr: null
+        }
+
+        this.lastSend = null;
+        this.agent = null;
 
         this.socket.addListener('message', (...args) => this.onMessage(...args));
         this.socket.addListener('listening', () => this.onListening());
@@ -166,6 +255,7 @@ class Channel {
         this.socket.bind();
     }
     onListening() {
+        this.state = 'listening'
         console.log('Tunnel started listening');
 
         const message = new ControlRpcMessage({
@@ -185,12 +275,63 @@ class Channel {
 
         const message = new ControlRpcMessage({ content: msg });
         const data = message.toJSON();
-        //console.log('GOT MESSAGE', msg, rinfo)
+
+        if (data.id === ControlRequest.Pong.id) {
+            this.pong.client_addr = data.client_addr.address + ':' + data.client_addr.port;
+            this.pong.tunnel_addr = data.tunnel_addr.address + ':' + data.tunnel_addr.port;
+        } else if (data.id === ControlRequest.AgentRegistered.id) {
+            this.agent = data.agent;
+            console.log('authenticated')
+        }
+
+        if (data?.wait) {
+            setTimeout(() => {
+                this.lastSend.writeBigInt64BE(BigInt(this.request_id), 0);
+                this.send(this.lastSend);
+            }, 500)
+            return;
+        }
+
+        if (data && this.state === 'listening') {
+            this.state = 'authenticating'
+            this.authenticate(data)
+        }
+
+        //console.log('GOT MESSAGE', msg, rinfo, data)
     }
     send(buffer) {
+        this.request_id++
         this.socket.send(buffer, 0, buffer.length, this.port, this.controlAddress, (err) => {
-            if (err) console.log(err)
+            if (err) return console.log(err);
+            this.lastSend = buffer;
         });
+    }
+    async authenticate() {
+        const test = await fetchData();
+
+        const body = {
+            "agent_version": {
+              "version": {
+                "platform": "macos",
+                "version": "0.0.1"
+              },
+              "official": false,
+              "details_website": "https://google.com"
+            },
+            "client_addr": this.pong.client_addr,
+            "tunnel_addr": this.pong.tunnel_addr
+          }
+
+        const proto = await test.api.execute('/proto/register', body);
+        if (proto.status !== 'success') return console.trace(proto);
+
+        const message = new ControlRpcMessage({
+            request_id: this.request_id,
+            content: Buffer.from(proto?.data?.key, 'hex')
+        });
+
+        const buffer = message.toBuffer();
+        this.send(buffer);
     }
 }
 

@@ -74,15 +74,22 @@ async function genSecret() {
 async function run() {
     if (!config.secret) config.secret = await genSecret();
 
-    const agent = await api.execute('/agents/rundata');
-    if (agent.status !== "success") return console.trace(agent);
+    return {
+        secret: config.secret,
+        api: api
+    }
 
-    console.log(agent.data.tunnels)
-    const routing = await api.execute('/agents/routing/get');
-    if (routing.status !== "success") return console.trace(routing);
-    console.log(routing)
+    // const agent = await api.execute('/agents/rundata');
+    // if (agent.status !== "success") return console.trace(agent);
+
+    // console.log(agent.data.tunnels)
+    // const routing = await api.execute('/agents/routing/get');
+    // if (routing.status !== "success") return console.trace(routing);
+    // console.log(routing)
 
 }
 
-run()
+module.exports = run
+
+// run()
 
