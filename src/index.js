@@ -1,8 +1,6 @@
 const axios = require('axios').default;
-const config = require('./config.json');
+const config = require('../config.json');
 const crypto = require('crypto');
-const util = require('util');
-const dns = require('dns');
 const fs = require('fs');
 
 const api = axios.create({
