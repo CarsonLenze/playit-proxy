@@ -1,7 +1,6 @@
+const { ControlRpcMessage, ControlRequest } = require('./control_messages.js');
 const dgram = require('dgram');
-const fetchData = require('.');
-
-const { ControlRpcMessage, ControlRequest } = require('./control_messages.js')
+const fetchData = require('./old.js');
 
 class Channel {
     constructor(controlAddress) {

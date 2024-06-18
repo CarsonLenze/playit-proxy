@@ -7,6 +7,10 @@ class Message {
     }
 }
 
+//ControlRequest
+
+//ControlResponse
+
 class Pong extends Message {
     static id = 1;
 
