@@ -1,3 +1,12 @@
+const os = require('os');
+
+function getPlatform() {
+    const values = { 'Darwin': 'macos' };
+    const key = os.type();
+
+    return values[key];
+}
+
 function writeBigInt64BE(value) {
     const buf = Buffer.alloc(8);
     buf.writeBigInt64BE(value);
@@ -8,6 +17,11 @@ function writeInt32BE(value) {
     const buf = Buffer.alloc(4);
     buf.writeInt32BE(value);
     return buf;
+}
+
+function formatAddress({ type = 4, address, port}) {
+    if (type === 6) address = `[${address}]`;
+    return [address, port].join(':');
 }
 
 function readAddress(buffer, offset) {
@@ -21,9 +35,11 @@ function readAddress(buffer, offset) {
         offset += 4;
     } else if (type === 6) {
         const ip_parts = buffer.slice(offset, offset + 16);
-        address = Array.from(ip_parts).join(':');
+        address = Array.from({ length: 8 }, (_, i) => ip_parts.readUInt16BE(i * 2).toString(16)).join(':');
+        address = address.replace(/(^|:)0(:0)*:0(:|$)/, '$1::$3').replace(/:{3,4}/, '::');
         offset += 16;
-    } else return console.error("unknown ip type", type);
+
+    } else return console.trace("unknown ip type", type);
 
     const port = buffer.readUInt16BE(offset);
     offset += 2;
@@ -63,4 +79,6 @@ module.exports = {
     writeInt32BE: writeInt32BE,
     readAddress: readAddress,
     AgentSessionId: AgentSessionId,
+    getPlatform: getPlatform,
+    formatAddress: formatAddress
 }

@@ -10,7 +10,7 @@ async function claim_secret(api) {
     }
 
     const claim = await api.claim_setup(body);
-    if (claim.status !== 'success') return console.error(claim);
+    if (claim.status !== 'success') return console.trace(claim);
 
     console.log('Visit web page:', 'https://playit.gg/mc/' + body.code);
     console.log('Or enter code: ', body.code);
@@ -22,7 +22,7 @@ async function claim_secret(api) {
 
             if (claim.status !== 'success') {
                 clearInterval(interval);
-                console.error(claim);
+                console.trace(claim);
                 return process.exit(1);
             }
 
@@ -41,7 +41,7 @@ async function claim_secret(api) {
                     const exchange = await api.claim_exchange(body.code);
 
                     if (exchange.status !== 'success') {
-                        console.error(claim);
+                        console.trace(claim);
                         return process.exit(1);
                     }
 
@@ -51,12 +51,12 @@ async function claim_secret(api) {
                 case 'UserRejected':
                     /* user rejected */
                     clearInterval(interval);
-                    console.error('User rejected agent');
+                    console.trace('User rejected agent');
                     process.exit(1);
                 break;
                 default:
                     clearInterval(interval);
-                    console.error('unknown claim code', claim.data);
+                    console.trace('unknown claim code', claim.data);
                     return process.exit(1);
                 break;
             }

@@ -35,19 +35,29 @@ class API {
         return this.execute({ method: 'post', url: '/claim/exchange', data: { code }});
     }
     async agents_rundata() {
-        if (!this.secret) return console.error('request requires secret');
+        if (!this.secret) return console.trace('request requires secret');
 
         return this.execute({ method: 'post', url: '/agents/rundata' });
     }
     async routing_get(agent_id = null) {
-        if (!this.secret) return console.error('request requires secret');
+        if (!this.secret) return console.trace('request requires secret');
 
         return this.execute({ method: 'post', url: '/agents/routing/get', data: { agent_id }});
     }
+    async create_tunnel(data) {
+        if (!this.secret) return console.trace('request requires secret');
+
+        return this.execute({ method: 'post', url: '/tunnels/create', data: data });
+    }
     async list_tunnels(agent_id, tunnel_id = null) {
-        if (!this.secret) return console.error('request requires secret');
+        if (!this.secret) return console.trace('request requires secret');
 
         return this.execute({ method: 'post', url: '/tunnels/list', data: { agent_id, tunnel_id } });
+    }
+    async proto_register(data) {
+        if (!this.secret) return console.trace('request requires secret');
+
+        return this.execute({ method: 'post', url: '/proto/register', data: data });
     }
 }
 

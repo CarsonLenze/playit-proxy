@@ -136,8 +136,10 @@ class ControlRpcMessage {
         }
     }
     toJSON() {
-        const rand = this.content.readInt32BE();
+        const feedType = this.content.readInt32BE();
         this.offset += 4;
+
+        if (feedType === 2) return console.log('new client')
 
         this.request_id = Number(
             this.content.readBigInt64BE(this.offset)
@@ -164,7 +166,6 @@ class ControlRpcMessage {
                 console.log('unknow: ', id)
         }
         data.id = id;
-        data.rand = rand;
 
         return data;
     }
