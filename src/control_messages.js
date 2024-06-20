@@ -45,6 +45,7 @@ class Pong extends Message {
         data.tunnel_addr = utils.readAddress(buffer, offset);
         offset += (data.tunnel_addr.type === 4 ? 7 : 19);
 
+        console.log(buffer.length, offset)
         //session_expire_at: Option::read_from(read)?,
         return data;
     }
@@ -63,8 +64,52 @@ class Ping extends Message {
 
         buffers.push(utils.writeBigInt64BE(BigInt(this.now)))
         if (this.current_ping !== null) buffers.push(utils.writeInt32BE(this.current_ping))
-        // if (this.session_id !== null)
+        if (this.session_id !== null) {
+            const buffer = utils.AgentSessionId.writeTo(this.session_id);
+            // const json = utils.AgentSessionId.readFrom(buffer, 0);
+            // console.log(buffer, json)
+            buffers.push(buffer);
+        }
         return Buffer.concat(buffers);
+    }
+}
+
+class SetupUdpChannel extends Message {
+    static id = 4;
+
+    constructor(args) {
+        super(args);
+    }
+
+    writeTo() {
+        return utils.AgentSessionId.writeTo(this.session_id);
+    }
+}
+
+class UdpChannelDetails extends Message {
+    static id = 8;
+
+    constructor(args) {
+        super(args);
+    }
+
+    readFrom(buffer, offset) {
+        const data = new Object();
+
+        data.tunnel_addr = utils.readAddress(buffer, offset);
+        offset += (data.tunnel_addr.type === 4 ? 7 : 19);
+
+        const length = Number(
+            buffer.readBigInt64BE(offset)
+        );
+        offset += 8;
+
+        const token = buffer.slice(offset, offset + length);
+        data.token = token
+        //.toString('hex');
+        offset += length;
+
+        return data;
     }
 }
 
@@ -96,7 +141,7 @@ class AgentRegistered extends Message {
     readFrom(buffer, offset) {
         const data = new Object();
 
-        data.agent = utils.AgentSessionId.readFrom(buffer, offset);
+        data.session = utils.AgentSessionId.readFrom(buffer, offset);
         offset += 24;
 
         data.expires_at = Number(
@@ -108,11 +153,67 @@ class AgentRegistered extends Message {
     }
 }
 
+
+
+class NewClient extends Message {
+    static id = 20;
+
+    constructor(args) {
+        super(args);
+    }
+
+    readFrom(buffer, offset) {
+        const data = new Object();
+
+        data.connect_addr = utils.readAddress(buffer, offset);
+        offset += (data.connect_addr.type === 4 ? 7 : 19);
+
+        data.peer_addr = utils.readAddress(buffer, offset);
+        offset += (data.peer_addr.type === 4 ? 7 : 19);
+
+        data.claim_instructions = {}
+
+        data.claim_instructions.address = utils.readAddress(buffer, offset);
+        offset += (data.claim_instructions.address.type === 4 ? 7 : 19);
+
+        const length = Number(
+            buffer.readBigInt64BE(offset)
+        );
+        offset += 8;
+
+        const token = buffer.slice(offset, offset + length);
+        data.claim_instructions.token = token
+        //.toString('hex');
+        offset += length;
+
+        data.tunnel_server_id = Number(
+            buffer.readBigInt64BE(offset)
+        );
+        offset += 8;
+
+        data.data_center_id = buffer.readInt32BE(offset)
+        offset += 4;
+
+        return data
+    }
+}
+
+/*
+connect_addr: SocketAddr::read_from(read)?,
+            peer_addr: SocketAddr::read_from(read)?,
+            claim_instructions: ClaimInstructions::read_from(read)?,
+            tunnel_server_id: read.read_u64::<BigEndian>()?,
+            data_center_id: read.read_u32::<BigEndian>()?,
+*/
+
 const ControlRequest = {
     Pong: Pong, /* 1 */
     RequestQueued: RequestQueued, /* 4 */
+    SetupUdpChannel: SetupUdpChannel, /* 4 */
     AgentRegistered: AgentRegistered, /* 6 */
-    Ping: Ping /* 6 */
+    Ping: Ping, /* 6 */
+    UdpChannelDetails: UdpChannelDetails, /* 8 */
+    NewClient: NewClient
 }
 
 class ControlRpcMessage {
@@ -139,35 +240,48 @@ class ControlRpcMessage {
         const feedType = this.content.readInt32BE();
         this.offset += 4;
 
-        if (feedType === 2) return console.log('new client')
+        if (feedType == 1) {
+            this.request_id = Number(
+                this.content.readBigInt64BE(this.offset)
+            );
+            this.offset += 8;
+            const message_id = this.content.readInt32BE(this.offset);
+            this.offset += 4;
 
-        this.request_id = Number(
-            this.content.readBigInt64BE(this.offset)
-        );
-        this.offset += 8;
-        const id = this.content.readInt32BE(this.offset);
-        this.offset += 4;
+            let data = {};
+            switch (message_id) {
+                case ControlRequest.Pong.id:
+                    const pong = new ControlRequest.Pong();
+                    data = pong.readFrom(this.content, this.offset);
+                    break;
+                case ControlRequest.AgentRegistered.id:
+                    const agentRegistered = new ControlRequest.AgentRegistered();
+                    data = agentRegistered.readFrom(this.content, this.offset);
+                    break;
+                case ControlRequest.UdpChannelDetails.id:
+                    const udpChannelDetails = new ControlRequest.UdpChannelDetails();
+                    data = udpChannelDetails.readFrom(this.content, this.offset);
+                    break;
+                case ControlRequest.RequestQueued.id:
+                    break;
+                default:
+                    console.log('unknow: ', message_id)
+            }
+            data.id = message_id;
 
-        let data = {};
-        switch (id) {
-            case ControlRequest.Pong.id:
-                const pong = new ControlRequest.Pong();
-                data = pong.readFrom(this.content, this.offset);
-                console.log('ping:', (data.server_now - data.request_now) + 'ms')
-            break;
-            case ControlRequest.RequestQueued.id:
-                data = { wait: true }
-            break;
-            case ControlRequest.AgentRegistered.id:
-                const agentRegistered = new ControlRequest.AgentRegistered();
-                data = agentRegistered.readFrom(this.content, this.offset);
-                break;
-            default:
-                console.log('unknow: ', id)
+            return data;
         }
-        data.id = id;
+        /* new client */
+        else if (feedType == 2) {
+            let data = {};
 
-        return data;
+            const newClient = new ControlRequest.NewClient();
+            data = newClient.readFrom(this.content, this.offset);
+
+            data.id = 20;
+
+            return data;
+        }
     }
 }
 

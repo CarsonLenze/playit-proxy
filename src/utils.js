@@ -19,7 +19,7 @@ function writeInt32BE(value) {
     return buf;
 }
 
-function formatAddress({ type = 4, address, port}) {
+function formatAddress({ type = 4, address, port }) {
     if (type === 6) address = `[${address}]`;
     return [address, port].join(':');
 }
@@ -71,6 +71,20 @@ const AgentSessionId = {
         offset += 8;
 
         return data;
+    },
+    writeTo(session) {
+        const buf = Buffer.alloc(24);
+
+        //session_id
+        buf.writeBigInt64BE(BigInt(session.session_id), 0);
+
+        //account_id
+        buf.writeBigInt64BE(BigInt(session.account_id), 8);
+
+        //agent_id
+        buf.writeBigInt64BE(BigInt(session.agent_id), 16);
+        
+        return buf;
     }
 }
 

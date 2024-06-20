@@ -45,6 +45,43 @@ async function run() {
     if (rundata.status !== 'success') return console.trace(rundata);
 
     if (rundata.data.account_status !== 'ready') return console.trace('account is not ready');
+
+    const routing = await api.routing_get();
+    if (routing.status !== 'success') return console.trace(routing);
+
+    const address = routing.data.targets4[0];
+
+    const channel = new Channel(address);
+
+    channel.on('authenticate', async (callback) => {
+        const agent = {
+            agent_version: {
+                version: {
+                    platform: utils.getPlatform(),
+                    version: global.VERSION
+                },
+                official: false,
+                details_website: "tbd"
+            },
+            client_addr: utils.formatAddress(channel.pong.client_addr),
+            tunnel_addr: utils.formatAddress(channel.pong.tunnel_addr)
+        }
+
+        const proto = await api.proto_register(agent);
+        if (proto.status !== 'success') {
+            console.trace(proto, body);
+            process.exit(1);
+        }
+
+        callback(proto.data.key);
+    });
+
+    channel.start();
+}
+
+run()
+
+
     // const agent_id = rundata.data.agent_id;
     //console.log(rundata)
 
@@ -89,37 +126,3 @@ async function run() {
     // if (!tunnel) console.trace('no tunnel')
     // //for url console.log(tunnel.alloc.data)
     // //create tunnel here and do more routing changes
-
-    const routing = await api.routing_get();
-    if (routing.status !== 'success') return console.trace(routing);
-
-    const address = routing.data.targets6[0];
-
-    const channel = new Channel(address);
-    channel.start();
-
-    channel.onAuthenticate(async (pong) => {
-        const body = {
-            "agent_version": {
-                "version": {
-                    "platform": utils.getPlatform(),
-                    "version": global.VERSION
-                },
-                "official": true,
-                "details_website": "https://google.com"
-            },
-            "client_addr": utils.formatAddress(pong.client_addr),
-            "tunnel_addr": utils.formatAddress(pong.tunnel_addr)
-        }
-
-        const proto = await api.proto_register(body);
-        if (proto.status !== 'success') {
-            console.trace(proto, body);
-            process.exit(1);
-        }
-
-        return proto.data.key;
-    })
-}
-
-run()
