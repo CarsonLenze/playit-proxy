@@ -155,48 +155,48 @@ class AgentRegistered extends Message {
 
 
 
-class NewClient extends Message {
-    static id = 20;
+// class NewClient extends Message {
+//     static id = 20;
 
-    constructor(args) {
-        super(args);
-    }
+//     constructor(args) {
+//         super(args);
+//     }
 
-    readFrom(buffer, offset) {
-        const data = new Object();
+//     readFrom(buffer, offset) {
+//         const data = new Object();
 
-        data.connect_addr = utils.readAddress(buffer, offset);
-        offset += (data.connect_addr.type === 4 ? 7 : 19);
+//         data.connect_addr = utils.readAddress(buffer, offset);
+//         offset += (data.connect_addr.type === 4 ? 7 : 19);
 
-        data.peer_addr = utils.readAddress(buffer, offset);
-        offset += (data.peer_addr.type === 4 ? 7 : 19);
+//         data.peer_addr = utils.readAddress(buffer, offset);
+//         offset += (data.peer_addr.type === 4 ? 7 : 19);
 
-        data.claim_instructions = {}
+//         data.claim_instructions = {}
 
-        data.claim_instructions.address = utils.readAddress(buffer, offset);
-        offset += (data.claim_instructions.address.type === 4 ? 7 : 19);
+//         data.claim_instructions.address = utils.readAddress(buffer, offset);
+//         offset += (data.claim_instructions.address.type === 4 ? 7 : 19);
 
-        const length = Number(
-            buffer.readBigInt64BE(offset)
-        );
-        offset += 8;
+//         const length = Number(
+//             buffer.readBigInt64BE(offset)
+//         );
+//         offset += 8;
 
-        const token = buffer.slice(offset, offset + length);
-        data.claim_instructions.token = token
-        //.toString('hex');
-        offset += length;
+//         const token = buffer.slice(offset, offset + length);
+//         data.claim_instructions.token = token
+//         //.toString('hex');
+//         offset += length;
 
-        data.tunnel_server_id = Number(
-            buffer.readBigInt64BE(offset)
-        );
-        offset += 8;
+//         data.tunnel_server_id = Number(
+//             buffer.readBigInt64BE(offset)
+//         );
+//         offset += 8;
 
-        data.data_center_id = buffer.readInt32BE(offset)
-        offset += 4;
+//         data.data_center_id = buffer.readInt32BE(offset)
+//         offset += 4;
 
-        return data
-    }
-}
+//         return data
+//     }
+// }
 
 /*
 connect_addr: SocketAddr::read_from(read)?,
@@ -205,16 +205,6 @@ connect_addr: SocketAddr::read_from(read)?,
             tunnel_server_id: read.read_u64::<BigEndian>()?,
             data_center_id: read.read_u32::<BigEndian>()?,
 */
-
-const ControlRequest = {
-    Pong: Pong, /* 1 */
-    RequestQueued: RequestQueued, /* 4 */
-    SetupUdpChannel: SetupUdpChannel, /* 4 */
-    AgentRegistered: AgentRegistered, /* 6 */
-    Ping: Ping, /* 6 */
-    UdpChannelDetails: UdpChannelDetails, /* 8 */
-    NewClient: NewClient
-}
 
 class ControlRpcMessage {
     constructor({ request_id = null, content }) {
@@ -272,20 +262,82 @@ class ControlRpcMessage {
             return data;
         }
         /* new client */
-        else if (feedType == 2) {
-            let data = {};
+        // else if (feedType == 2) {
+        //     let data = {};
 
-            const newClient = new ControlRequest.NewClient();
-            data = newClient.readFrom(this.content, this.offset);
+        //     const newClient = new ControlRequest.NewClient();
+        //     data = newClient.readFrom(this.content, this.offset);
 
-            data.id = 20;
+        //     data.id = 20;
 
-            return data;
-        }
+        //     return data;
+        // }
+  }
+}
+
+const ControlRequest = {
+    Pong: Pong, /* 1 */
+    RequestQueued: RequestQueued, /* 4 */
+    SetupUdpChannel: SetupUdpChannel, /* 4 */
+    AgentRegistered: AgentRegistered, /* 6 */
+    Ping: Ping, /* 6 */
+    UdpChannelDetails: UdpChannelDetails, /* 8 */
+    // NewClient: NewClient
+}
+
+const ControlResponse = {
+    [Pong.id]: Pong,
+    Pong: Pong, /* 1 */
+}
+
+class Response extends Message {
+    static id = 1;
+
+    constructor(args) {
+        super(args);
+
+        this.offset = 0;
+    }
+    toJSON() {
+        const response = new Object();
+
+        this.request_id = Number(this.content.readBigInt64BE(this.offset));
+        this.offset += 8;
+
+        response.id = this.content.readInt32BE(this.offset);
+        this.offset += 4;
+
+        if (!ControlResponse[response.id]) return null;
+        const Event = new ControlResponse[response.id]();
+        if (!Event) return null;
+
+        response.name = Event.constructor.name;
+
+        response.data = Event.readFrom(this.content, this.offset);
+        if (!response.data) return null;
+
+        return response;
     }
 }
 
+class NewClient extends Message {
+    static id = 2;
+
+    constructor(args) {
+        super(args);
+
+        this.offset = 0;
+    }
+}
+
+const ControlFeed = {
+    Response: Response,
+    NewClient: NewClient
+}
+
 module.exports = {
+    ControlFeed: ControlFeed,
     ControlRequest: ControlRequest,
+    ControlResponse: ControlResponse,
     ControlRpcMessage: ControlRpcMessage
 }
