@@ -8,7 +8,7 @@ const fs = require('fs');
 global.VERSION = '0.15.13'
 
 const tunnel_config = {
-    type: 'java', /* java/bedrock/hybrid */
+    type: 'bedrock', /* java/bedrock/hybrid */
     allocation: {
         type: 'region',
         details: {
@@ -104,6 +104,8 @@ async function run() {
 
             console.log(tunnel.name, 'Tunnel url:', url);
         }
+
+        if (check.tunnels.some(tunnel => tunnel.port_type === 'udp')) channel.get_udp_channel();
     });
 
     channel.on('new_tcp_client', (data) => {

@@ -113,8 +113,7 @@ class UdpChannelDetails extends Message {
         offset += 8;
 
         const token = buffer.slice(offset, offset + length);
-        data.token = token
-        //.toString('hex');
+        data.token = token.toString('hex');
         offset += length;
 
         return data;
@@ -182,13 +181,14 @@ const ControlRequest = {
 }
 
 const ControlResponse = {
-    [Pong.id]: Pong,
-    [RequestQueued.id]: RequestQueued,
+    [Pong.id]: Pong,  /* 1 */
+    [RequestQueued.id]: RequestQueued, /* 4 */
     [AgentRegistered.id]: AgentRegistered, /* 6 */
+    [UdpChannelDetails.id]: UdpChannelDetails, /* 8 */
     Pong: Pong, /* 1 */
     RequestQueued: RequestQueued, /* 4 */
     AgentRegistered: AgentRegistered, /* 6 */
-    // UdpChannelDetails: UdpChannelDetails, /* 8 */
+    UdpChannelDetails: UdpChannelDetails, /* 8 */
 }
 
 class Response extends Message {

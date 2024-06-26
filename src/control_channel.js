@@ -84,6 +84,17 @@ class ControlChannel extends EventEmitter {
 
         this.socket.bind();
     }
+    get_udp_channel() {
+        const message = new ControlRpcMessage({
+            request_id: this.request_id,
+            content: new ControlRequest.SetupUdpChannel({
+                session_id: this.session_id
+            })
+        });
+
+        const buffer = message.toBuffer();
+        this.send(buffer);
+    }
     onListening() {
         console.log('Control Channel Connected to', this.control.tunnel_name, 'with IP:', this.control.addr);
 
@@ -105,6 +116,8 @@ class ControlChannel extends EventEmitter {
                 
                 const feed = new ControlFeed.Response({ content: message });
                 const response = feed.toJSON();
+
+                //console.log(response)
 
                 switch (response.id) {
                     case ControlResponse.Pong.id:
@@ -140,6 +153,10 @@ class ControlChannel extends EventEmitter {
                         this.session_id = response.data.session;
                         
                         if (first_auth) this.emit('authenticated', response);
+                    break;
+                    case ControlResponse.UdpChannelDetails.id:
+                        console.log('udp channel', response)
+                        //setup udp channel here but not clients.
                     break;
                     default:
                         console.log('unknown', response)
