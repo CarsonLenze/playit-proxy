@@ -1,8 +1,8 @@
 # retry auth when retry later requests dont come through
 
-# new ping system to get more acurate ping (time from ping sending to getting pong)
+# new ping system to get more acurate ping (DONE)
 
-# agent keep alives (DONE)
+# handle on device ip change
 
 # refresh control channel address every minute
 

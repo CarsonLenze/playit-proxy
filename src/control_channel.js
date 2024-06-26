@@ -12,14 +12,17 @@ class ControlChannel extends EventEmitter {
 
         this.session_expires = null;
         this.session_id = null;
-        this.last_ping = 0;
         this.last_auth = null;
         this.last_keep_alive = 0;
         // this.last_udp_auth = 0;
-        this.current_ping = 0;
         this.request_id = 1;
 
         this.socket = null;
+
+        this.last_ping = 0;
+        this.tunnel_ping = 0;
+        this.current_ping = 0;
+        this.requests = new Map();
 
         this.tick = setInterval(() => { if (this.session_id) this.update() }, 1000);
     }
@@ -34,16 +37,16 @@ class ControlChannel extends EventEmitter {
             request_id: this.request_id,
             content: new ControlRequest.Ping({
                 now: now,
-                current_ping: this.current_ping,
+                current_ping: this.tunnel_ping,
                 session_id: this.session_id
             })
         });
 
+        this.requests.set(this.request_id, now);
         const buffer = message.toBuffer();
         this.send(buffer);
     }
     keep_alive() {
-        console.log('keep alive');
         const now = Date.now();
         this.last_keep_alive = now;
 
@@ -55,7 +58,6 @@ class ControlChannel extends EventEmitter {
         });
 
         const buffer = message.toBuffer();
-        console.log(buffer, message)
         this.send(buffer);
     }
     authenticate() {
@@ -89,6 +91,9 @@ class ControlChannel extends EventEmitter {
     }
     update() {
         const now = Date.now();
+
+        //ping control
+        for (const key of this.requests.keys()) if ((this.requests.get(key) + 60000) < Date.now()) this.requests.delete(key);
 
         //ping
         if (now - this.last_ping > 1_000) this.ping();
@@ -146,9 +151,12 @@ class ControlChannel extends EventEmitter {
                         this.pong.tunnel_addr = response.data.tunnel_addr;
 
                         if (response.data.session_expire_at) this.session_expires = response.data.session_expire_at;
-                        this.current_ping = (response.data.server_now - response.data.request_now);
+                        const ping = this.requests.get(response.request_id);
+                        this.requests.delete(response.request_id);
+                        this.current_ping = (Date.now() - ping);
+                        this.tunnel_ping = (response.data.server_now - response.data.request_now);
 
-                        console.log('ping:', this.current_ping + 'ms', this.session_expires);
+                        console.log('Tunnel ping:', this.tunnel_ping + 'ms', 'Client ping:', this.current_ping + 'ms');
 
                         if (!this.session_id) this.authenticate();
                         this.emit('ping', response);
