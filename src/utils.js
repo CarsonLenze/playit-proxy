@@ -19,6 +19,12 @@ function writeInt32BE(value) {
     return buf;
 }
 
+function writeUInt8(value) {
+    const buf = Buffer.alloc(1);
+    buf.writeUInt8(value);
+    return buf;
+}
+
 function formatAddress({ type = 4, address, port }) {
     if (type === 6) address = `[${address}]`;
     return [address, port].join(':');
@@ -91,6 +97,7 @@ const AgentSessionId = {
 module.exports = {
     writeBigInt64BE: writeBigInt64BE,
     writeInt32BE: writeInt32BE,
+    writeUInt8: writeUInt8,
     readAddress: readAddress,
     AgentSessionId: AgentSessionId,
     getPlatform: getPlatform,

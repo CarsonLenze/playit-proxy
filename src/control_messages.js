@@ -45,8 +45,16 @@ class Pong extends Message {
         data.tunnel_addr = utils.readAddress(buffer, offset);
         offset += (data.tunnel_addr.type === 4 ? 7 : 19);
 
-        console.log(buffer.length, offset)
-        //session_expire_at: Option::read_from(read)?,
+        const bool = buffer.readUInt8(offset);
+        offset += 1;
+
+        if (bool == 1) {
+            data.session_expire_at = Number(
+                buffer.readBigInt64BE(offset)
+            );
+            offset += 8;
+        }
+
         return data;
     }
 }
@@ -63,13 +71,18 @@ class Ping extends Message {
         let buffers = [];
 
         buffers.push(utils.writeBigInt64BE(BigInt(this.now)))
-        if (this.current_ping !== null) buffers.push(utils.writeInt32BE(this.current_ping))
+
+        if (this.current_ping !== null) {
+            buffers.push(utils.writeUInt8(1))
+            buffers.push(utils.writeInt32BE(this.current_ping))
+        } else buffers.push(utils.writeUInt8(0));
+
         if (this.session_id !== null) {
+            buffers.push(utils.writeUInt8(1))
             const buffer = utils.AgentSessionId.writeTo(this.session_id);
-            // const json = utils.AgentSessionId.readFrom(buffer, 0);
-            // console.log(buffer, json)
-            buffers.push(buffer);
-        }
+            buffers.push(buffer)
+        } else buffers.push(utils.writeUInt8(0));
+
         return Buffer.concat(buffers);
     }
 }
@@ -120,13 +133,8 @@ class RequestQueued extends Message {
         super(args);
     }
 
-    writeTo() {
-        let buffers = [];
-
-        buffers.push(utils.writeBigInt64BE(BigInt(this.now)))
-        if (this.current_ping !== null) buffers.push(utils.writeInt32BE(this.current_ping))
-        // if (this.session_id !== null)
-        return Buffer.concat(buffers);
+    readFrom(buffer, offset) {
+        return new Object()
     }
 }
 
@@ -210,7 +218,6 @@ class ControlRpcMessage {
     constructor({ request_id = null, content }) {
         this.request_id = request_id;
         this.content = content;
-        this.offset = 0;
     }
     toBuffer() {
         const request_id = utils.writeBigInt64BE(BigInt(this.request_id));
@@ -226,53 +233,6 @@ class ControlRpcMessage {
             return buffer;
         }
     }
-    toJSON() {
-        const feedType = this.content.readInt32BE();
-        this.offset += 4;
-
-        if (feedType == 1) {
-            this.request_id = Number(
-                this.content.readBigInt64BE(this.offset)
-            );
-            this.offset += 8;
-            const message_id = this.content.readInt32BE(this.offset);
-            this.offset += 4;
-
-            let data = {};
-            switch (message_id) {
-                case ControlRequest.Pong.id:
-                    const pong = new ControlRequest.Pong();
-                    data = pong.readFrom(this.content, this.offset);
-                    break;
-                case ControlRequest.AgentRegistered.id:
-                    const agentRegistered = new ControlRequest.AgentRegistered();
-                    data = agentRegistered.readFrom(this.content, this.offset);
-                    break;
-                case ControlRequest.UdpChannelDetails.id:
-                    const udpChannelDetails = new ControlRequest.UdpChannelDetails();
-                    data = udpChannelDetails.readFrom(this.content, this.offset);
-                    break;
-                case ControlRequest.RequestQueued.id:
-                    break;
-                default:
-                    console.log('unknow: ', message_id)
-            }
-            data.id = message_id;
-
-            return data;
-        }
-        /* new client */
-        // else if (feedType == 2) {
-        //     let data = {};
-
-        //     const newClient = new ControlRequest.NewClient();
-        //     data = newClient.readFrom(this.content, this.offset);
-
-        //     data.id = 20;
-
-        //     return data;
-        // }
-  }
 }
 
 const ControlRequest = {
@@ -287,7 +247,11 @@ const ControlRequest = {
 
 const ControlResponse = {
     [Pong.id]: Pong,
+    [RequestQueued.id]: RequestQueued,
+    [AgentRegistered.id]: AgentRegistered, /* 6 */
     Pong: Pong, /* 1 */
+    RequestQueued: RequestQueued, /* 4 */
+    AgentRegistered: AgentRegistered, /* 6 */
 }
 
 class Response extends Message {
@@ -301,7 +265,7 @@ class Response extends Message {
     toJSON() {
         const response = new Object();
 
-        this.request_id = Number(this.content.readBigInt64BE(this.offset));
+        response.request_id = Number(this.content.readBigInt64BE(this.offset));
         this.offset += 8;
 
         response.id = this.content.readInt32BE(this.offset);

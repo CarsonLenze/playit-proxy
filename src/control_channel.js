@@ -2,7 +2,6 @@ const EventEmitter = require('events');
 const { ControlRpcMessage, ControlRequest, ControlResponse, ControlFeed } = require('./control_messages.js');
 const dgram = require('dgram');
 const net = require('net');
-const API = require('./api');
 
 async function find_channel(addresses) {
     for (const address of addresses) {
@@ -12,24 +11,27 @@ async function find_channel(addresses) {
     }
 }
 
-class Channel extends EventEmitter {
+class ControlChannel extends EventEmitter {
     constructor() {
         super();
 
-        this.control = { addr: '', port: 5525, type: '' };
+        this.control = { addr: null, port: 5525, type: null };
+        this.pong = { client_addr: null, tunnel_addr: null }
 
-        this.started = null;
+        this.session_expires = null;
         this.session_id = null;
         this.last_ping = 0;
-        this.last_keep_alive = 0;
-        this.last_udp_auth = 0;
+        this.last_auth = null;
+        // this.last_keep_alive = 0;
+        // this.last_udp_auth = 0;
         this.current_ping = 0;
         this.request_id = 1;
 
         this.socket = null;
+
+        this.tick = setInterval(() => { if (this.session_id) this.update() }, 1000);
     }
     start() {
-        this.started = Date.now();
         this.refresh_control();
     }
     ping() {
@@ -48,17 +50,20 @@ class Channel extends EventEmitter {
         const buffer = message.toBuffer();
         this.send(buffer);
     }
-    initSocket() {
-        //add old logic here
-        this.socket = dgram.createSocket('udp' + this.control.type);
+    authenticate() {
+        this.emit('authenticate', async (key) => {
+            const message = new ControlRpcMessage({
+                request_id: this.request_id,
+                content: Buffer.from(key, 'hex')
+            });
 
-        this.socket.addListener('message', (...args) => this.onMessage(...args));
-        this.socket.addListener('listening', () => this.onListening());
-
-        this.socket.bind();
+            const buffer = message.toBuffer();
+            this.last_auth = message;
+            this.send(buffer);
+        })
     }
     refresh_control() {
-        this.emit('refresh_control', async (address) => {
+        this.emit('control_addr', async (address) => {
             const control = await find_channel(address);
             
             if (control.addr !== this.control.addr) {
@@ -68,6 +73,20 @@ class Channel extends EventEmitter {
                 this.initSocket();
             }
         });
+    }
+    update() {
+        const now = Date.now();
+
+        if (now - this.last_ping > 1_000) this.ping();
+    }
+    initSocket() {
+        //add old logic here
+        this.socket = dgram.createSocket('udp' + this.control.type);
+
+        this.socket.addListener('message', (...args) => this.onMessage(...args));
+        this.socket.addListener('listening', () => this.onListening());
+
+        this.socket.bind();
     }
     onListening() {
         console.log('control channel started listening');
@@ -91,8 +110,35 @@ class Channel extends EventEmitter {
 
                 switch (response.id) {
                     case ControlResponse.Pong.id:
+                        this.pong.client_addr = response.data.client_addr;
+                        this.pong.tunnel_addr = response.data.tunnel_addr;
+
+                        if (response.data.session_expire_at) this.session_expires = response.data.session_expire_at;
                         this.current_ping = (response.data.server_now - response.data.request_now);
                         console.log('ping:', this.current_ping + 'ms');
+
+                        if (!this.session_id) this.authenticate();
+                    break;
+                    case ControlResponse.RequestQueued.id:
+                        if (!this.last_auth || (this.last_auth?.request_id !== response.request_id)) {
+                            console.log('returned to auth')
+                            return this.authenticate();
+                        }
+                        
+                        setTimeout(() => {
+                            this.last_auth.request_id = this.request_id;
+                            
+                            const buffer = this.last_auth.toBuffer();
+                            this.send(buffer);
+                        }, 1000)
+                    break;
+                    case ControlResponse.AgentRegistered.id:
+                        this.session_expires = response.data.expires_at;
+                        this.session_id = response.data.session;
+                        console.log('authed')
+                    break;
+                    default:
+                        console.log('unknown', response)
                     break;
                 }
             break;
@@ -110,23 +156,4 @@ class Channel extends EventEmitter {
     }
 }
 
-const channel = new Channel();
-
-const api = new API('3a1095277c7c367fd66fb3fffd78bace9ec731d9d5b05ec790ce7754f76b7d94');
-
-channel.on('refresh_control', async (callback) => {
-    const routing = await api.routing_get();
-    
-    if (routing.status !== 'success') {
-        console.trace(routing);
-        process.exit(1);
-    }
-
-    const addresses = [];
-    for (const ip6 of routing.data.targets6) addresses.push(ip6);
-    for (const ip4 of routing.data.targets4) addresses.push(ip4);
-
-    callback(addresses);
-});
-
-channel.start()
+module.exports = ControlChannel;
