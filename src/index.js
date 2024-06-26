@@ -8,7 +8,7 @@ const fs = require('fs');
 global.VERSION = '0.15.13'
 
 const tunnel_config = {
-    type: 'bedrock', /* java/bedrock/hybrid */
+    type: 'java', /* java/bedrock/hybrid */
     allocation: {
         type: 'region',
         details: {

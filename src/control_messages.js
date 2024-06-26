@@ -82,6 +82,18 @@ class Ping extends Message {
     }
 }
 
+class AgentKeepAlive extends Message {
+    static id = 3;
+
+    constructor(args) {
+        super(args);
+    }
+
+    writeTo() {
+        return utils.AgentSessionId.writeTo(this.session_id);
+    }
+}
+
 class SetupUdpChannel extends Message {
     static id = 4;
 
@@ -177,6 +189,7 @@ class ControlRpcMessage {
 
 const ControlRequest = {
     Ping: Ping, /* 6 */
+    AgentKeepAlive: AgentKeepAlive, /* 3 */
     SetupUdpChannel: SetupUdpChannel, /* 4 */
 }
 

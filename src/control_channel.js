@@ -14,7 +14,8 @@ class ControlChannel extends EventEmitter {
         this.session_id = null;
         this.last_ping = 0;
         this.last_auth = null;
-        // this.last_keep_alive = 0;
+        this.last_keep_alive = 0;
+        // this.last_udp_auth = 0;
         this.current_ping = 0;
         this.request_id = 1;
 
@@ -39,6 +40,22 @@ class ControlChannel extends EventEmitter {
         });
 
         const buffer = message.toBuffer();
+        this.send(buffer);
+    }
+    keep_alive() {
+        console.log('keep alive');
+        const now = Date.now();
+        this.last_keep_alive = now;
+
+        const message = new ControlRpcMessage({
+            request_id: this.request_id,
+            content: new ControlRequest.AgentKeepAlive({
+                session_id: this.session_id
+            })
+        });
+
+        const buffer = message.toBuffer();
+        console.log(buffer, message)
         this.send(buffer);
     }
     authenticate() {
@@ -73,7 +90,11 @@ class ControlChannel extends EventEmitter {
     update() {
         const now = Date.now();
 
+        //ping
         if (now - this.last_ping > 1_000) this.ping();
+
+        //keep alive
+        if (10_000 < (now - this.last_keep_alive) && (this.session_expires - now) < 30_000) this.keep_alive();
     }
     initSocket() {
         //add old logic here
@@ -117,7 +138,7 @@ class ControlChannel extends EventEmitter {
                 const feed = new ControlFeed.Response({ content: message });
                 const response = feed.toJSON();
 
-                //console.log(response)
+                // console.log(response)
 
                 switch (response.id) {
                     case ControlResponse.Pong.id:
@@ -127,7 +148,7 @@ class ControlChannel extends EventEmitter {
                         if (response.data.session_expire_at) this.session_expires = response.data.session_expire_at;
                         this.current_ping = (response.data.server_now - response.data.request_now);
 
-                        //console.log('ping:', this.current_ping + 'ms');
+                        console.log('ping:', this.current_ping + 'ms', this.session_expires);
 
                         if (!this.session_id) this.authenticate();
                         this.emit('ping', response);
