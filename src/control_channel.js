@@ -1,21 +1,13 @@
-const EventEmitter = require('events');
 const { ControlRpcMessage, ControlRequest, ControlResponse, ControlFeed } = require('./control_messages.js');
+const utils = require('./control_utils.js');
+const EventEmitter = require('events');
 const dgram = require('dgram');
-const net = require('net');
-
-async function find_channel(addresses) {
-    for (const address of addresses) {
-        //console.log('trying to establish tunnel connection')
-        let is_ip6 = net.isIPv6(address);
-        if (!is_ip6) return { addr: address, type: 4 };
-    }
-}
 
 class ControlChannel extends EventEmitter {
     constructor() {
         super();
 
-        this.control = { addr: null, port: 5525, type: null };
+        this.control = { addr: null, port: 5525, type: null, server_id: null, dc_id: null, tunnel_name: null };
         this.pong = { client_addr: null, tunnel_addr: null }
 
         this.session_expires = null;
@@ -23,7 +15,6 @@ class ControlChannel extends EventEmitter {
         this.last_ping = 0;
         this.last_auth = null;
         // this.last_keep_alive = 0;
-        // this.last_udp_auth = 0;
         this.current_ping = 0;
         this.request_id = 1;
 
@@ -64,11 +55,16 @@ class ControlChannel extends EventEmitter {
     }
     refresh_control() {
         this.emit('control_addr', async (address) => {
-            const control = await find_channel(address);
+            const control = await utils.find_channel(address);
             
             if (control.addr !== this.control.addr) {
                 this.control.addr = control.addr;
                 this.control.type = control.type;
+
+                const info = await utils.getDCInfo(control.addr, control.type);
+                this.control.server_id = info.server_id;
+                this.control.dc_id = info.dc_id;
+                this.control.tunnel_name = info.tunnel_name;
 
                 this.initSocket();
             }
@@ -89,7 +85,7 @@ class ControlChannel extends EventEmitter {
         this.socket.bind();
     }
     onListening() {
-        console.log('control channel started listening');
+        console.log('Control Channel Connected to', this.control.tunnel_name, 'with IP:', this.control.addr);
 
         this.ping();
     }
@@ -101,7 +97,9 @@ class ControlChannel extends EventEmitter {
         
         switch (feedType) {
             case ControlFeed.NewClient.id:
-                console.log('new client')
+                const client = new ControlFeed.NewClient({ content: message });
+                const data = client.toJSON();
+                this.emit('new_tcp_client', data);
             break;
             case ControlFeed.Response.id:
                 
@@ -116,8 +114,7 @@ class ControlChannel extends EventEmitter {
                         if (response.data.session_expire_at) this.session_expires = response.data.session_expire_at;
                         this.current_ping = (response.data.server_now - response.data.request_now);
 
-
-                        console.log('ping:', this.current_ping + 'ms');
+                        //console.log('ping:', this.current_ping + 'ms');
 
                         if (!this.session_id) this.authenticate();
                         this.emit('ping', response);

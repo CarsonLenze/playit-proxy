@@ -7,10 +7,6 @@ class Message {
     }
 }
 
-//ControlRequest
-
-//ControlResponse
-
 class Pong extends Message {
     static id = 1;
 
@@ -58,7 +54,6 @@ class Pong extends Message {
         return data;
     }
 }
-
 
 class Ping extends Message {
     static id = 6;
@@ -138,7 +133,6 @@ class RequestQueued extends Message {
     }
 }
 
-
 class AgentRegistered extends Message {
     static id = 6;
 
@@ -160,59 +154,6 @@ class AgentRegistered extends Message {
         return data
     }
 }
-
-
-
-// class NewClient extends Message {
-//     static id = 20;
-
-//     constructor(args) {
-//         super(args);
-//     }
-
-//     readFrom(buffer, offset) {
-//         const data = new Object();
-
-//         data.connect_addr = utils.readAddress(buffer, offset);
-//         offset += (data.connect_addr.type === 4 ? 7 : 19);
-
-//         data.peer_addr = utils.readAddress(buffer, offset);
-//         offset += (data.peer_addr.type === 4 ? 7 : 19);
-
-//         data.claim_instructions = {}
-
-//         data.claim_instructions.address = utils.readAddress(buffer, offset);
-//         offset += (data.claim_instructions.address.type === 4 ? 7 : 19);
-
-//         const length = Number(
-//             buffer.readBigInt64BE(offset)
-//         );
-//         offset += 8;
-
-//         const token = buffer.slice(offset, offset + length);
-//         data.claim_instructions.token = token
-//         //.toString('hex');
-//         offset += length;
-
-//         data.tunnel_server_id = Number(
-//             buffer.readBigInt64BE(offset)
-//         );
-//         offset += 8;
-
-//         data.data_center_id = buffer.readInt32BE(offset)
-//         offset += 4;
-
-//         return data
-//     }
-// }
-
-/*
-connect_addr: SocketAddr::read_from(read)?,
-            peer_addr: SocketAddr::read_from(read)?,
-            claim_instructions: ClaimInstructions::read_from(read)?,
-            tunnel_server_id: read.read_u64::<BigEndian>()?,
-            data_center_id: read.read_u32::<BigEndian>()?,
-*/
 
 class ControlRpcMessage {
     constructor({ request_id = null, content }) {
@@ -236,13 +177,8 @@ class ControlRpcMessage {
 }
 
 const ControlRequest = {
-    Pong: Pong, /* 1 */
-    RequestQueued: RequestQueued, /* 4 */
-    SetupUdpChannel: SetupUdpChannel, /* 4 */
-    AgentRegistered: AgentRegistered, /* 6 */
     Ping: Ping, /* 6 */
-    UdpChannelDetails: UdpChannelDetails, /* 8 */
-    // NewClient: NewClient
+    SetupUdpChannel: SetupUdpChannel, /* 4 */
 }
 
 const ControlResponse = {
@@ -252,6 +188,7 @@ const ControlResponse = {
     Pong: Pong, /* 1 */
     RequestQueued: RequestQueued, /* 4 */
     AgentRegistered: AgentRegistered, /* 6 */
+    // UdpChannelDetails: UdpChannelDetails, /* 8 */
 }
 
 class Response extends Message {
@@ -291,6 +228,39 @@ class NewClient extends Message {
         super(args);
 
         this.offset = 0;
+    }
+    toJSON() {
+        const data = new Object();
+
+        data.connect_addr = utils.readAddress(this.content, this.offset);
+        this.offset += (data.connect_addr.type === 4 ? 7 : 19);
+
+        data.peer_addr = utils.readAddress(this.content, this.offset);
+        this.offset += (data.peer_addr.type === 4 ? 7 : 19);
+
+        data.claim_instructions = {};
+
+        data.claim_instructions.address = utils.readAddress(this.content, this.offset);
+        this.offset += (data.claim_instructions.address.type === 4 ? 7 : 19);
+
+        const length = Number(
+            this.content.readBigInt64BE(this.offset)
+        );
+        this.offset += 8;
+
+        const token = this.content.slice(this.offset, this.offset + length);
+        data.claim_instructions.token = token.toString('hex');
+        this.offset += length;
+
+        data.tunnel_server_id = Number(
+            this.content.readBigInt64BE(this.offset)
+        );
+        this.offset += 8;
+
+        data.data_center_id = this.content.readInt32BE(this.offset);
+        this.offset += 4;
+
+        return data;
     }
 }
 

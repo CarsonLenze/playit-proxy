@@ -85,8 +85,9 @@ async function run() {
     });
 
     channel.on('authenticated', async (data) => {
+        console.log('Control Channel Authenticated!')
         const check = await setup.checkTunnels(api, config, tunnel_config, agent_id);
-        
+
         if (check.status !== 'success') {
             console.trace(check);
             process.exit(1);
@@ -103,6 +104,10 @@ async function run() {
 
             console.log(tunnel.name, 'Tunnel url:', url);
         }
+    });
+
+    channel.on('new_tcp_client', (data) => {
+        console.log('new client', data);
     });
 
     channel.start();

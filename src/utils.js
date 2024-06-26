@@ -89,7 +89,7 @@ const AgentSessionId = {
 
         //agent_id
         buf.writeBigInt64BE(BigInt(session.agent_id), 16);
-        
+
         return buf;
     }
 }
