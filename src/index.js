@@ -7,22 +7,19 @@ const fs = require('fs');
 //version 0.15.13
 global.VERSION = '0.15.13'
 
-const server = {
-    host: '127.0.0.1',
-    port: 19132,
-    type: 'bedrock'
-}
-
-const alloc = {
-    type: 'region',
-    details: {
-        region: 'smart-global'
+const tunnel_config = {
+    type: 'java', /* java/bedrock/hybrid */
+    allocation: {
+        type: 'region',
+        details: {
+            region: 'smart-global'
+        }
     }
 }
 
 async function run() {
     const api = new API();
-    let config = { secret_key: null, tunnel_id: null };
+    let config = { secret_key: null, tunnels: [] };
 
     try {
         const buffer = fs.readFileSync('./config.json');
@@ -43,6 +40,7 @@ async function run() {
 
     const rundata = await api.agents_rundata();
     if (rundata.status !== 'success') return console.trace(rundata);
+    const agent_id = rundata.data.agent_id;
 
     if (rundata.data.account_status !== 'ready') return console.trace('account is not ready');
 
@@ -86,53 +84,29 @@ async function run() {
         callback(proto.data.key);
     });
 
+    channel.on('authenticated', async (data) => {
+        const check = await setup.checkTunnels(api, config, tunnel_config, agent_id);
+        
+        if (check.status !== 'success') {
+            console.trace(check);
+            process.exit(1);
+        }
+
+        if (check.rewrite) {
+            config.tunnels = check.tunnels.map(tunnel => tunnel.id);
+            fs.writeFileSync('./config.json', JSON.stringify(config, 0, 4));
+        }
+
+        for (const tunnel of check.tunnels) {
+            const alloc = tunnel.alloc.data;
+            const url = tunnel.port_type === 'udp' ? alloc.assigned_domain + ':' + alloc.port_start : alloc.assigned_srv
+
+            console.log(tunnel.name, 'Tunnel url:', url);
+        }
+    });
+
     channel.start();
 }
 
+console.clear();
 run()
-
-
-// const agent_id = rundata.data.agent_id;
-//console.log(rundata)
-
-//console.log(agent_id)
-
-// const tunnels = await api.list_tunnels(agent_id);
-// if (tunnels.status !== 'success') return console.trace(tunnels);
-
-// const tunnel = tunnels.data.tunnels.find(tunnel => {
-//     const data = tunnel.origin.data;
-//     if (data.agent_id !== agent_id) return false;
-//     if (data.local_ip !== server.host) return false;
-//     if (data.local_port !== server.port) return false;
-//     if (tunnel.tunnel_type !== ('minecraft-' + server.type)) return false;
-//     return true;
-// });
-
-// const capitalize = s => s && s[0].toUpperCase() + s.slice(1)
-
-// const tunnel = {
-//     // agent_id: agent_id,
-//     name: "Minecraft " + capitalize(server.type),
-//     tunnel_type: 'minecraft-' + server.type,
-//     port_type: server.type === 'bedrock' ? 'udp' : 'tcp',
-//     port_count: 1,
-//     origin: {
-//         type: 'managed',
-//         data: {
-//             agent_id: agent_id
-//         }
-//     },
-//     enabled: true,
-//     alloc: alloc
-// }
-
-// const test = await api.create_tunnel(tunnel)
-// //console.log(test.data.id)
-
-// const tunnels = await api.list_tunnels(agent_id, test.data.id);
-// console.log(tunnels.data.tunnels[0])
-
-// if (!tunnel) console.trace('no tunnel')
-// //for url console.log(tunnel.alloc.data)
-// //create tunnel here and do more routing changes

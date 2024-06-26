@@ -115,9 +115,12 @@ class ControlChannel extends EventEmitter {
 
                         if (response.data.session_expire_at) this.session_expires = response.data.session_expire_at;
                         this.current_ping = (response.data.server_now - response.data.request_now);
+
+
                         console.log('ping:', this.current_ping + 'ms');
 
                         if (!this.session_id) this.authenticate();
+                        this.emit('ping', response);
                     break;
                     case ControlResponse.RequestQueued.id:
                         if (!this.last_auth || (this.last_auth?.request_id !== response.request_id)) {
@@ -133,9 +136,13 @@ class ControlChannel extends EventEmitter {
                         }, 1000)
                     break;
                     case ControlResponse.AgentRegistered.id:
+                        let first_auth = false
+                        if (!this.session_id) first_auth = true;
+
                         this.session_expires = response.data.expires_at;
                         this.session_id = response.data.session;
-                        console.log('authed')
+                        
+                        if (first_auth) this.emit('authenticated', response);
                     break;
                     default:
                         console.log('unknown', response)
